@@ -1,4 +1,3 @@
-import { alert, allSettled } from "@tim-code/my-util"
 import { execSync, spawn } from "node:child_process"
 import { open, readFile, readdir } from "node:fs/promises"
 import { basename, extname } from "node:path"
@@ -150,5 +149,5 @@ export async function main({ outputDir, eventsDir, templateYamlPath }) {
   if (!promises.length) {
     throw new InputError(`no lambdas specified; args: ${process.argv.slice(2).join(" ")}`)
   }
-  alert(await allSettled({ array: promises, limit: 10 }))
+  await Promise.allSettled(promises)
 }

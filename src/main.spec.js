@@ -8,8 +8,6 @@ const spawnMock = jest.fn()
 const openMock = jest.fn()
 const readFileMock = jest.fn()
 const readdirMock = jest.fn()
-const alertMock = jest.fn()
-const allSettledMock = jest.fn()
 const exitMock = jest.fn()
 const YAMLParseMock = jest.fn()
 
@@ -21,10 +19,6 @@ jest.unstable_mockModule("node:fs/promises", () => ({
   open: openMock,
   readFile: readFileMock,
   readdir: readdirMock,
-}))
-jest.unstable_mockModule("@tim-code/my-util", () => ({
-  alert: alertMock,
-  allSettled: allSettledMock,
 }))
 jest.unstable_mockModule("node:process", () => ({
   exit: exitMock,
@@ -351,8 +345,6 @@ describe("main", () => {
     readdirMock.mockReset()
     readFileMock.mockReset()
     YAMLParseMock.mockReset()
-    alertMock.mockReset()
-    allSettledMock.mockReset()
     exitMock.mockReset()
   })
 
@@ -376,14 +368,11 @@ describe("main", () => {
     readdirMock.mockResolvedValue(["foo.json", "bar.json"])
     readFileMock.mockResolvedValueOnce(Buffer.from("yamlfile"))
     YAMLParseMock.mockReturnValue({ doc: true })
-    allSettledMock.mockResolvedValue([{ status: "fulfilled" }])
-    alertMock.mockResolvedValue()
 
     await main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
     expect(readdirMock).toHaveBeenCalledWith("/ev")
     expect(readFileMock).toHaveBeenCalledWith("/template.yaml")
     expect(YAMLParseMock).toHaveBeenCalled()
-    expect(alertMock).toHaveBeenCalled()
   })
 
   it("filters lambdas if filter argument is provided", async () => {
@@ -391,11 +380,8 @@ describe("main", () => {
     readdirMock.mockResolvedValue(["foo.json", "bar.json"])
     readFileMock.mockResolvedValueOnce(Buffer.from("yamlfile"))
     YAMLParseMock.mockReturnValue({ doc: true })
-    allSettledMock.mockResolvedValue([{ status: "fulfilled" }])
-    alertMock.mockResolvedValue()
 
     await main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
-    expect(alertMock).toHaveBeenCalled()
   })
 
   it("throws InputError if no lambdas specified", async () => {
@@ -403,8 +389,6 @@ describe("main", () => {
     readdirMock.mockResolvedValue([])
     readFileMock.mockResolvedValue(Buffer.from("yamlfile"))
     YAMLParseMock.mockReturnValue({ doc: true })
-    allSettledMock.mockResolvedValue([])
-    alertMock.mockResolvedValue()
 
     await expect(
       main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
