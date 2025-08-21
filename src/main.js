@@ -150,5 +150,5 @@ export async function main({ outputDir, eventsDir, templateYamlPath }) {
   if (!promises.length) {
     throw new InputError(`no lambdas specified; args: ${process.argv.slice(2).join(" ")}`)
   }
-  alert(await allSettled(promises))
+  alert(await allSettled({ array: promises, limit: 10 }))
 }
