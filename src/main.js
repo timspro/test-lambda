@@ -1,5 +1,5 @@
 import { execSync, spawn } from "node:child_process"
-import { open, readFile, readdir } from "node:fs/promises"
+import { mkdir, open, readFile, readdir } from "node:fs/promises"
 import { basename, extname } from "node:path"
 import YAML from "yaml"
 
@@ -131,6 +131,8 @@ export async function main({ outputDir, eventsDir, templateYamlPath }) {
   if (mode !== "remote" && mode !== "local") {
     throw new InputError("second argument must be 'remote' or 'local'")
   }
+  await mkdir(outputDir, { recursive: true })
+
   let lambdaFilenames = (await readdir(eventsDir)).map((lambdaFilename) => {
     const lambda = basename(lambdaFilename, extname(lambdaFilename))
     return lambda

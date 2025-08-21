@@ -8,6 +8,7 @@ const spawnMock = jest.fn()
 const openMock = jest.fn()
 const readFileMock = jest.fn()
 const readdirMock = jest.fn()
+const mkdirMock = jest.fn()
 const exitMock = jest.fn()
 const YAMLParseMock = jest.fn()
 
@@ -16,6 +17,7 @@ jest.unstable_mockModule("node:child_process", () => ({
   spawn: spawnMock,
 }))
 jest.unstable_mockModule("node:fs/promises", () => ({
+  mkdir: mkdirMock,
   open: openMock,
   readFile: readFileMock,
   readdir: readdirMock,
@@ -346,6 +348,7 @@ describe("main", () => {
     readFileMock.mockReset()
     YAMLParseMock.mockReset()
     exitMock.mockReset()
+    mkdirMock.mockReset()
   })
 
   afterAll(() => {
@@ -361,6 +364,16 @@ describe("main", () => {
     await expect(
       main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
     ).rejects.toThrow("second argument must be 'remote' or 'local'")
+  })
+
+  it("calls mkdir with recursive:true before proceeding", async () => {
+    process.argv = ["/usr/bin/node", "main.js", "local"]
+    readdirMock.mockResolvedValue(["foo.json"])
+    readFileMock.mockResolvedValueOnce(Buffer.from("yamlfile"))
+    YAMLParseMock.mockReturnValue({ doc: true })
+
+    await main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
+    expect(mkdirMock).toHaveBeenCalledWith("/out", { recursive: true })
   })
 
   it("runs all lambdas in events dir and calls alert", async () => {
