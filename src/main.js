@@ -1,133 +1,25 @@
-import { execSync, spawn } from "node:child_process"
-import { mkdir, open, readFile, readdir } from "node:fs/promises"
+import { mkdir, readFile, readdir } from "node:fs/promises"
 import { basename, extname } from "node:path"
 import YAML from "yaml"
+import { runLambda } from "./run-lambda.js"
 
 export class InputError extends Error {}
-
-export function findFunctionName(object, codeUri, parents = []) {
-  if (object && typeof object === "object") {
-    for (const [key, value] of Object.entries(object)) {
-      if (key === "CodeUri") {
-        if (value.endsWith(codeUri)) {
-          // parents should be FunctionName then Properties
-          return parents[parents.length - 2]
-        }
-      }
-      const result = findFunctionName(value, codeUri, [...parents, key])
-      if (result) {
-        return result
-      }
-    }
-  }
-  return undefined
-}
-
-export function resolveFunctionName(prefix) {
-  prefix = `${process.env.npm_package_name}-${prefix}`
-  try {
-    const output = execSync(
-      `aws lambda list-functions --query "Functions[?starts_with(FunctionName, '${prefix}')].FunctionName | [0]" --output text`,
-      { encoding: "utf-8" }
-    ).trim()
-    if (!output || output === "None") {
-      throw new Error(`No function found with prefix: ${prefix}`)
-    }
-    return output
-  } catch (err) {
-    throw new Error(`Failed to resolve function: ${err.message}`)
-  }
-}
-
-export async function runTest({ eventsDir, outputDir, document, lambda, mode, filtered }) {
-  const inputPath = `${eventsDir}/${lambda}.json`
-  const stdoutPath = `${outputDir}/${lambda}.json`
-
-  const functionName = findFunctionName(document, lambda)
-  if (!functionName) {
-    console.log(`could not find function name for ${lambda}`)
-    return undefined
-  }
-
-  let command, args, stdoutFd
-  if (mode === "local") {
-    command = "sam"
-    args = ["local", "invoke", functionName, "--event", inputPath]
-    stdoutFd = await open(stdoutPath, "w")
-  } else {
-    // does make more sense to use `sam remote invoke` but cannot specify boto config when using that
-    // this results in the CLI timing out when invoking a lambda that lasts more than 10 seconds
-    command = "aws"
-    const actualFunctionName = resolveFunctionName(functionName)
-    const payloadPath = `file://${inputPath}`
-    args = [
-      "lambda",
-      "invoke",
-      "--function-name",
-      actualFunctionName,
-      "--payload",
-      payloadPath,
-      "--cli-binary-format",
-      "raw-in-base64-out",
-      "--cli-read-timeout",
-      "0", // "If the value is set to 0, the socket read will be blocking and not timeout"
-      stdoutPath,
-    ]
-    stdoutFd = { fd: "ignore", close: () => {} }
-  }
-  console.log(`command: ${command} ${args.join(" ")}`)
-  const subprocess = spawn(command, args, {
-    stdio: ["inherit", stdoutFd.fd, "inherit"],
-  })
-
-  // unclear when this has effect
-  subprocess.on("error", console.error)
-
-  return new Promise((resolve) => {
-    subprocess.on("close", async (code) => {
-      await stdoutFd.close()
-
-      if (code !== 0) {
-        console.log(`💥 ${lambda} exited with code ${code}`)
-        resolve()
-        return
-      }
-
-      const buffer = await readFile(stdoutPath)
-      if (!buffer || !buffer.length) {
-        console.log(`❌ ${lambda} - empty response`)
-        resolve()
-        return
-      }
-      const result = JSON.parse(buffer.toString())
-      const body = JSON.parse(result.body ?? "{}")
-      if (
-        result.statusCode === 200 &&
-        (!result.errors || !body.errors || !body.errors.length)
-      ) {
-        console.log(`✅ ${lambda}`)
-      } else {
-        console.log(`❌ ${lambda}`)
-      }
-      if (filtered) {
-        console.log(result)
-      }
-      resolve()
-    })
-  })
-}
 
 /**
  * Run the lambdas given certain information about where to get inputs and put output.
  * @param {Object} $1
- * @param {string} $1.outputDir specifies where to put the responses of each lambda invocation.
+ * @param {Array<string>} $1.argv process.argv
+ * @param {string} $1.outputDir specifies where to put the responses of each lambda invocation. Makes this directory recursively if needed.
  * @param {string} $1.eventsDir specifies a directory of JSON files. Each JSON file name should correspond to the end of a CodeURI in template.yaml
- *  For example, if EVENTS_DIR contained a JSON file called "query.json" and template.yaml contained "CodeUri: dist/options-query",
- *  then the script will associate calling that lambda with the event in the JSON file. Be careful that only one CodeUri matches for each JSON file.
+ *  For example, if EVENTS_DIR contained a JSON file called "query.json" and template.yaml contained "CodeUri: dist/users-query",
+ *  then the script will associate calling that lambda with the event in the JSON file.
+ *  Be careful that only one CodeUri matches for each JSON file (no same name but different directory support).
  * @param {string} $1.templateYamlPath specifies the path to find the template.yaml file.
+ * @param {string=} $1.stackName specifies a prefix to the function name,
+ *  which is used when looking up the deployed lambda using the function name written in template.yaml
  */
-export async function main({ outputDir, eventsDir, templateYamlPath }) {
-  const mode = process.argv[2]
+export async function main({ argv, outputDir, eventsDir, templateYamlPath, stackName }) {
+  const mode = argv[2]
   if (mode !== "remote" && mode !== "local") {
     throw new InputError("second argument must be 'remote' or 'local'")
   }
@@ -137,7 +29,7 @@ export async function main({ outputDir, eventsDir, templateYamlPath }) {
     const lambda = basename(lambdaFilename, extname(lambdaFilename))
     return lambda
   })
-  const filter = process.argv[3]
+  const filter = argv[3]
   if (filter) {
     lambdaFilenames = lambdaFilenames.filter((lambda) => lambda === filter)
   }
@@ -146,10 +38,18 @@ export async function main({ outputDir, eventsDir, templateYamlPath }) {
   })
   const promises = lambdaFilenames.map((lambdaFilename) => {
     const lambda = basename(lambdaFilename, extname(lambdaFilename))
-    return runTest({ outputDir, eventsDir, document, lambda, mode, filtered: Boolean(filter) })
+    return runLambda({
+      outputDir,
+      eventsDir,
+      document,
+      lambda,
+      mode,
+      stackName,
+      filtered: Boolean(filter),
+    })
   })
   if (!promises.length) {
-    throw new InputError(`no lambdas specified; args: ${process.argv.slice(2).join(" ")}`)
+    throw new InputError(`no lambdas specified; args: ${argv.slice(2).join(" ")}`)
   }
   await Promise.allSettled(promises)
 }
