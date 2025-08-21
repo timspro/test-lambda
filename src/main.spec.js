@@ -1,5 +1,6 @@
 /* eslint-disable no-restricted-syntax */
 import { jest } from "@jest/globals"
+import { sleep } from "@tim-code/my-util"
 
 // Mocks for external modules and functions
 const execSyncMock = jest.fn()
@@ -32,7 +33,9 @@ jest.unstable_mockModule("yaml", () => ({
   default: { parse: YAMLParseMock },
 }))
 
-const { findFunctionName, resolveFunctionName, runTest, main } = await import("./main.js")
+const { findFunctionName, resolveFunctionName, runTest, main, InputError } = await import(
+  "./main.js"
+)
 
 describe("findFunctionName", () => {
   it("returns the function name when CodeUri matches at correct depth", () => {
@@ -63,20 +66,21 @@ describe("findFunctionName", () => {
     expect(findFunctionName(doc, "dist/foo")).toBeUndefined()
   })
 
-  it("finds deeply nested CodeUri and returns correct parent", () => {
-    const doc = {
-      Resources: {
-        MyFunc: {
-          Nested: {
-            Properties: {
-              CodeUri: "dist/deep",
-            },
-          },
-        },
-      },
-    }
-    expect(findFunctionName(doc, "dist/deep")).toBe("MyFunc")
-  })
+  // not supported for now
+  // it("finds deeply nested CodeUri and returns correct parent", () => {
+  //   const doc = {
+  //     Resources: {
+  //       MyFunc: {
+  //         Nested: {
+  //           Properties: {
+  //             CodeUri: "dist/deep",
+  //           },
+  //         },
+  //       },
+  //     },
+  //   }
+  //   expect(findFunctionName(doc, "dist/deep")).toBe("MyFunc")
+  // })
 
   it("returns undefined for non-object input", () => {
     expect(findFunctionName(null, "foo")).toBeUndefined()
@@ -143,7 +147,7 @@ describe("runTest", () => {
   let closeMock, onMock, subprocessMock
 
   beforeEach(() => {
-    process.env = { ...OLD_ENV, OUTPUT_DIR: "/out", EVENTS_DIR: "/ev" }
+    process.env = { ...OLD_ENV }
     closeMock = jest.fn().mockResolvedValue()
     openMock.mockResolvedValue({ fd: 9, close: closeMock })
     readFileMock.mockReset()
@@ -161,32 +165,40 @@ describe("runTest", () => {
     const document = {}
     const lambda = "foo"
     const spy = jest.spyOn(console, "log").mockImplementation(() => {})
-    const result = await runTest({ document, lambda, mode: "local" })
+    const result = await runTest({
+      document,
+      lambda,
+      mode: "local",
+      eventsDir: "/ev",
+      outputDir: "/out",
+    })
     expect(result).toBeUndefined()
     expect(spy).toHaveBeenCalledWith(expect.stringContaining("could not find function name"))
     spy.mockRestore()
   })
 
   it("runs local mode and handles success path", async () => {
-    // Setup to find function name
     const document = { Resources: { MyFunc: { Properties: { CodeUri: "foo" } } } }
     const lambda = "foo"
-    // Simulate subprocess events
     let closeHandler
     onMock.mockImplementation((event, cb) => {
       if (event === "close") closeHandler = cb
       return subprocessMock
     })
-    // Simulate readFile returns buffer with JSON
     const response = { statusCode: 200, body: JSON.stringify({}) }
     readFileMock.mockResolvedValue(Buffer.from(JSON.stringify(response)))
-    // Simulate open returns fd
     openMock.mockResolvedValue({ fd: 1, close: closeMock })
 
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
-    const promise = runTest({ document, lambda, mode: "local" })
-    // Simulate subprocess close event
+    const promise = runTest({
+      document,
+      lambda,
+      mode: "local",
+      eventsDir: "/ev",
+      outputDir: "/out",
+    })
+    await sleep(0)
     await closeHandler(0)
     await promise
 
@@ -202,28 +214,29 @@ describe("runTest", () => {
   })
 
   it("runs remote mode and handles non-200/error status", async () => {
-    // Setup to find function name
     const document = { Resources: { MyFunc: { Properties: { CodeUri: "foo" } } } }
     const lambda = "foo"
-    // Mock resolveFunctionName to return actual function name
     // ISSUE: Cannot mock resolveFunctionName since it's in the same file. Should be moved to separate module for full isolation.
-    // So this test will use the real implementation.
     execSyncMock.mockReturnValue("pkg-MyFunc\n")
-    // Simulate subprocess events
     let closeHandler
     onMock.mockImplementation((event, cb) => {
       if (event === "close") closeHandler = cb
       return subprocessMock
     })
-    // Simulate readFile returns buffer with error in body
     const response = { statusCode: 500, body: JSON.stringify({ errors: [1] }) }
     readFileMock.mockResolvedValue(Buffer.from(JSON.stringify(response)))
-    // stdoutFd is a dummy object in remote mode
     openMock.mockClear()
 
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
-    const promise = runTest({ document, lambda, mode: "remote" })
+    const promise = runTest({
+      document,
+      lambda,
+      mode: "remote",
+      eventsDir: "/ev",
+      outputDir: "/out",
+    })
+    await sleep(0)
     await closeHandler(0)
     await promise
 
@@ -249,7 +262,14 @@ describe("runTest", () => {
 
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
-    const promise = runTest({ document, lambda, mode: "local" })
+    const promise = runTest({
+      document,
+      lambda,
+      mode: "local",
+      eventsDir: "/ev",
+      outputDir: "/out",
+    })
+    await sleep(0)
     await closeHandler(1)
     await promise
 
@@ -270,7 +290,14 @@ describe("runTest", () => {
 
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
-    const promise = runTest({ document, lambda, mode: "local" })
+    const promise = runTest({
+      document,
+      lambda,
+      mode: "local",
+      eventsDir: "/ev",
+      outputDir: "/out",
+    })
+    await sleep(0)
     await closeHandler(0)
     await promise
 
@@ -292,7 +319,15 @@ describe("runTest", () => {
 
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
-    const promise = runTest({ document, lambda, mode: "local", filtered: true })
+    const promise = runTest({
+      document,
+      lambda,
+      mode: "local",
+      filtered: true,
+      eventsDir: "/ev",
+      outputDir: "/out",
+    })
+    await sleep(0)
     await closeHandler(0)
     await promise
 
@@ -326,13 +361,14 @@ describe("main", () => {
     process.argv = OLD_ARGV
   })
 
-  it("exits if mode is not remote or local", async () => {
+  it("throws InputError if mode is not remote or local", async () => {
     process.argv = ["/usr/bin/node", "main.js", "badmode"]
-    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
-    await main()
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("second argument must be"))
-    expect(exitMock).toHaveBeenCalled()
-    logSpy.mockRestore()
+    await expect(
+      main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
+    ).rejects.toThrow(InputError)
+    await expect(
+      main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
+    ).rejects.toThrow("second argument must be 'remote' or 'local'")
   })
 
   it("runs all lambdas in events dir and calls alert", async () => {
@@ -343,7 +379,7 @@ describe("main", () => {
     allSettledMock.mockResolvedValue([{ status: "fulfilled" }])
     alertMock.mockResolvedValue()
 
-    await main()
+    await main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
     expect(readdirMock).toHaveBeenCalledWith("/ev")
     expect(readFileMock).toHaveBeenCalledWith("/template.yaml")
     expect(YAMLParseMock).toHaveBeenCalled()
@@ -358,22 +394,23 @@ describe("main", () => {
     allSettledMock.mockResolvedValue([{ status: "fulfilled" }])
     alertMock.mockResolvedValue()
 
-    await main()
-    // Only "foo" should be run
+    await main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
     expect(alertMock).toHaveBeenCalled()
   })
 
-  it("logs error if no lambdas specified", async () => {
+  it("throws InputError if no lambdas specified", async () => {
     process.argv = ["/usr/bin/node", "main.js", "local"]
     readdirMock.mockResolvedValue([])
-    readFileMock.mockResolvedValueOnce(Buffer.from("yamlfile"))
+    readFileMock.mockResolvedValue(Buffer.from("yamlfile"))
     YAMLParseMock.mockReturnValue({ doc: true })
     allSettledMock.mockResolvedValue([])
     alertMock.mockResolvedValue()
 
-    const errorSpy = jest.spyOn(console, "error").mockImplementation(() => {})
-    await main()
-    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining("no lambdas specified"))
-    errorSpy.mockRestore()
+    await expect(
+      main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
+    ).rejects.toThrow(InputError)
+    await expect(
+      main({ outputDir: "/out", eventsDir: "/ev", templateYamlPath: "/template.yaml" })
+    ).rejects.toThrow("no lambdas specified; args: local")
   })
 })

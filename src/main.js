@@ -2,21 +2,9 @@ import { alert, allSettled } from "@tim-code/my-util"
 import { execSync, spawn } from "node:child_process"
 import { open, readFile, readdir } from "node:fs/promises"
 import { basename, extname } from "node:path"
-import { exit } from "node:process"
 import YAML from "yaml"
 
-/**
- * OUTPUT_DIR specifies where to put the responses of each lambda invocation.
- * EVENTS_DIR specifies a directory of JSON files. Each JSON file name should correspond to the end of a CodeURI in template.yaml
- *  For example, if EVENTS_DIR contained a JSON file called "query.json" and template.yaml contained "CodeUri: dist/options-query",
- *  then the script will associate calling that lambda with the event in the JSON file. Be careful that only one CodeUri matches for each JSON file.
- * TEMPLATE_PATH specifies the path to find the template.yaml file.
- */
-const {
-  OUTPUT_DIR: outputDir,
-  EVENTS_DIR: eventsDir,
-  TEMPLATE_PATH: templateYamlPath,
-} = process.env
+export class InputError extends Error {}
 
 export function findFunctionName(object, codeUri, parents = []) {
   if (object && typeof object === "object") {
@@ -52,7 +40,7 @@ export function resolveFunctionName(prefix) {
   }
 }
 
-export async function runTest({ document, lambda, mode, filtered }) {
+export async function runTest({ eventsDir, outputDir, document, lambda, mode, filtered }) {
   const inputPath = `${eventsDir}/${lambda}.json`
   const stdoutPath = `${outputDir}/${lambda}.json`
 
@@ -130,11 +118,19 @@ export async function runTest({ document, lambda, mode, filtered }) {
   })
 }
 
-export async function main() {
+/**
+ * Run the lambdas given certain information about where to get inputs and put output.
+ * @param {Object} $1
+ * @param {string} $1.outputDir specifies where to put the responses of each lambda invocation.
+ * @param {string} $1.eventsDir specifies a directory of JSON files. Each JSON file name should correspond to the end of a CodeURI in template.yaml
+ *  For example, if EVENTS_DIR contained a JSON file called "query.json" and template.yaml contained "CodeUri: dist/options-query",
+ *  then the script will associate calling that lambda with the event in the JSON file. Be careful that only one CodeUri matches for each JSON file.
+ * @param {string} $1.templateYamlPath specifies the path to find the template.yaml file.
+ */
+export async function main({ outputDir, eventsDir, templateYamlPath }) {
   const mode = process.argv[2]
   if (mode !== "remote" && mode !== "local") {
-    console.log("second argument must be 'remote' or 'local'")
-    exit()
+    throw new InputError("second argument must be 'remote' or 'local'")
   }
   let lambdaFilenames = (await readdir(eventsDir)).map((lambdaFilename) => {
     const lambda = basename(lambdaFilename, extname(lambdaFilename))
@@ -149,10 +145,10 @@ export async function main() {
   })
   const promises = lambdaFilenames.map((lambdaFilename) => {
     const lambda = basename(lambdaFilename, extname(lambdaFilename))
-    return runTest({ document, lambda, mode, filtered: Boolean(filter) })
+    return runTest({ outputDir, eventsDir, document, lambda, mode, filtered: Boolean(filter) })
   })
   if (!promises.length) {
-    console.error(`no lambdas specified; args: ${process.argv.slice(2).join(" ")}`)
+    throw new InputError(`no lambdas specified; args: ${process.argv.slice(2).join(" ")}`)
   }
   alert(await allSettled(promises))
 }
