@@ -25,24 +25,23 @@ export async function main({ argv, outputDir, eventsDir, templateYamlPath, stack
   }
   await mkdir(outputDir, { recursive: true })
 
-  let lambdaFilenames = (await readdir(eventsDir)).map((lambdaFilename) => {
-    const lambda = basename(lambdaFilename, extname(lambdaFilename))
-    return lambda
+  let eventFilenames = (await readdir(eventsDir)).map((eventFilename) => {
+    const noExtension = basename(eventFilename, extname(eventFilename))
+    return noExtension
   })
   const filter = argv[3]
   if (filter) {
-    lambdaFilenames = lambdaFilenames.filter((lambda) => lambda === filter)
+    eventFilenames = eventFilenames.filter((eventFilename) => eventFilename === filter)
   }
   const document = YAML.parse((await readFile(templateYamlPath)).toString(), {
     logLevel: "silent",
   })
-  const promises = lambdaFilenames.map((lambdaFilename) => {
-    const lambda = basename(lambdaFilename, extname(lambdaFilename))
+  const promises = eventFilenames.map((eventFilename) => {
     return runLambda({
       outputDir,
       eventsDir,
       document,
-      lambda,
+      lambda: eventFilename,
       mode,
       stackName,
       filtered: Boolean(filter),
