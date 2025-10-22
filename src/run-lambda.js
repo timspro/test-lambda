@@ -9,21 +9,18 @@ import { open, readFile } from "node:fs/promises"
  * @returns {string}
  */
 export function resolvePhysicalId({ logicalId, stackName }) {
-  try {
-    const output = execSync(
-      `aws cloudformation list-stack-resources \
-       --stack-name ${JSON.stringify(stackName)} \
+  const escapedStackName = JSON.stringify(stackName)
+  const output = execSync(
+    `aws cloudformation list-stack-resources \
+       --stack-name ${escapedStackName} \
        --query "StackResourceSummaries[?LogicalResourceId=='${logicalId}' && ResourceType=='AWS::Lambda::Function'].PhysicalResourceId | [0]" \
        --output text`,
-      { encoding: "utf-8" }
-    ).trim()
-    if (!output || output === "None") {
-      throw new Error(`no physical ID found for logical ID: ${logicalId}`)
-    }
-    return output
-  } catch (error) {
-    throw new Error(`failed to resolve function: ${error.message}`)
+    { encoding: "utf-8" }
+  ).trim()
+  if (!output || output === "None") {
+    throw new Error(`no physical ID found for logical ID: ${logicalId}`)
   }
+  return output
 }
 
 /**

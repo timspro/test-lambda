@@ -268,6 +268,36 @@ describe("main", () => {
       expect.objectContaining({ stackName: "stack" })
     )
   })
+
+  it("logs errors from failed invocations via allSettled and does not throw", async () => {
+    const argv = ["/usr/bin/node", "main.js", "remote"]
+    readdirMock.mockResolvedValue(["func.json", "sm.json"])
+    readFileMock.mockResolvedValue(Buffer.from("yamlfile"))
+    YAMLParseMock.mockReturnValue({
+      Resources: {
+        func: { Type: "AWS::Serverless::Function", Properties: {} },
+        sm: { Type: "AWS::Serverless::StateMachine", Properties: {} },
+      },
+    })
+    const err1 = new Error("lambda failed")
+    const err2 = new Error("state machine failed")
+    runLambdaMock.mockRejectedValue(err1)
+    runStateMachineMock.mockRejectedValue(err2)
+    const errSpy = jest.spyOn(console, "error").mockImplementation(() => {})
+
+    // Should resolve without throwing even when underlying invocations fail
+    await expect(
+      main({
+        argv,
+        outputDir: "/out",
+        eventsDir: "/ev",
+        templateYamlPath: "/template.yaml",
+        stackName: "stack",
+      })
+    ).resolves.toBeUndefined()
+
+    expect(errSpy).toHaveBeenCalledWith(err1, err2)
+  })
 })
 
 describe("getDefinition", () => {

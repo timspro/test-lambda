@@ -1,3 +1,4 @@
+import { allSettled } from "@tim-code/my-util"
 import { mkdir, readFile, readdir } from "node:fs/promises"
 import { basename, extname } from "node:path"
 import YAML from "yaml"
@@ -131,5 +132,8 @@ export async function main({ argv, outputDir, eventsDir, templateYamlPath, stack
   if (!promises.length) {
     throw new InputError("no lambdas or state machines specified")
   }
-  await Promise.allSettled(promises)
+  const { errors } = await allSettled({ array: promises })
+  if (errors.length) {
+    console.error(...errors)
+  }
 }
