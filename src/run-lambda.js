@@ -26,6 +26,17 @@ export function resolvePhysicalId({ logicalId, stackName }) {
   }
 }
 
+/**
+ * Run a lambda using AWS CLI.
+ * @param {Object} $1
+ * @param {string} $1.inputPath Path to input event file
+ * @param {string} $1.outputPath Path to output file
+ * @param {string} $1.logicalId Logical ID of the lambda (CloudFormation)
+ * @param {string} $1.eventName Name of the event
+ * @param {string} $1.mode "local" or "remote"
+ * @param {string} $1.stackName CloudFormation stack name
+ * @param {boolean} $1.filtered If true, will console.log output.
+ */
 export async function runLambda({
   inputPath,
   outputPath,
