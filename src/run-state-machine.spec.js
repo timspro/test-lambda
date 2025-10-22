@@ -14,7 +14,7 @@ jest.unstable_mockModule("node:child_process", () => ({
   execSync: execSyncMock,
 }))
 const resolvePhysicalIdMock = jest.fn()
-jest.unstable_mockModule("./run-lambda.js", () => ({
+jest.unstable_mockModule("./util.js", () => ({
   resolvePhysicalId: resolvePhysicalIdMock,
 }))
 

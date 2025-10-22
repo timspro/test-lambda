@@ -1,8 +1,7 @@
 import { sleep } from "@tim-code/my-util"
 import { execSync } from "node:child_process"
 import { writeFile } from "node:fs/promises"
-import { resolvePhysicalId } from "./run-lambda.js"
-
+import { resolvePhysicalId } from "./util.js"
 /**
  * Start execution for a state machine using the AWS CLI.
  * @param {Object} $1

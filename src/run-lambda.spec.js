@@ -2,67 +2,23 @@ import { jest } from "@jest/globals"
 import { sleep } from "@tim-code/my-util"
 
 // Mocks for external modules and functions
-const execSyncMock = jest.fn()
 const spawnMock = jest.fn()
 const openMock = jest.fn()
 const readFileMock = jest.fn()
+const resolvePhysicalIdMock = jest.fn()
 
 jest.unstable_mockModule("node:child_process", () => ({
-  execSync: execSyncMock,
   spawn: spawnMock,
 }))
 jest.unstable_mockModule("node:fs/promises", () => ({
   open: openMock,
   readFile: readFileMock,
 }))
+jest.unstable_mockModule("./util.js", () => ({
+  resolvePhysicalId: resolvePhysicalIdMock,
+}))
 
-const { resolvePhysicalId, runLambda } = await import("./run-lambda.js")
-
-describe("resolvePhysicalId", () => {
-  beforeEach(() => {
-    execSyncMock.mockReset()
-  })
-
-  it("returns physical ID from execSync output and uses CloudFormation query with stack name and logical ID", () => {
-    execSyncMock.mockReturnValue("stack-MyFunc\n")
-    expect(resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toBe("stack-MyFunc")
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("cloudformation list-stack-resources"),
-      expect.objectContaining({ encoding: "utf-8" })
-    )
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining('--stack-name "stack"'),
-      expect.any(Object)
-    )
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("LogicalResourceId=='MyFunc'"),
-      expect.any(Object)
-    )
-  })
-
-  it("throws if execSync output is empty", () => {
-    execSyncMock.mockReturnValue("")
-    expect(() => resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toThrow(
-      "no physical ID found for logical ID: MyFunc"
-    )
-  })
-
-  it('throws if execSync output is "None"', () => {
-    execSyncMock.mockReturnValue("None\n")
-    expect(() => resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toThrow(
-      "no physical ID found for logical ID: MyFunc"
-    )
-  })
-
-  it("throws with error message if execSync throws", () => {
-    execSyncMock.mockImplementation(() => {
-      throw new Error("fail")
-    })
-    expect(() => resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toThrow(
-      "fail"
-    )
-  })
-})
+const { runLambda } = await import("./run-lambda.js")
 
 describe("runLambda", () => {
   let closeMock, onMock, subprocessMock
@@ -73,7 +29,7 @@ describe("runLambda", () => {
     openMock.mockResolvedValue({ fd: 9, close: closeMock })
     readFileMock.mockReset()
     spawnMock.mockReset()
-    execSyncMock.mockReset()
+    resolvePhysicalIdMock.mockReset()
     onMock = jest.fn()
     subprocessMock = { on: onMock }
     spawnMock.mockReturnValue(subprocessMock)
@@ -125,7 +81,7 @@ describe("runLambda", () => {
     const outputPath = "/out/foo.json"
     const logicalId = "MyFunc"
     const eventName = "MyEvent"
-    execSyncMock.mockReturnValue("ActualFunc\n")
+    resolvePhysicalIdMock.mockReturnValue("ActualFunc")
 
     let closeHandler
     onMock.mockImplementation((event, cb) => {
@@ -150,6 +106,7 @@ describe("runLambda", () => {
     await closeHandler(0)
     await promise
 
+    expect(resolvePhysicalIdMock).toHaveBeenCalledWith({ logicalId, stackName: undefined })
     expect(spawnMock).toHaveBeenCalledWith(
       "aws",
       expect.arrayContaining([
@@ -173,7 +130,7 @@ describe("runLambda", () => {
     const outputPath = "/out/foo.json"
     const logicalId = "MyFunc"
     const eventName = "MyEvent"
-    execSyncMock.mockReturnValue("stack-MyFunc\n")
+    resolvePhysicalIdMock.mockReturnValue("stack-MyFunc")
 
     let closeHandler
     onMock.mockImplementation((event, cb) => {
@@ -197,16 +154,10 @@ describe("runLambda", () => {
     await closeHandler(0)
     await promise
 
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("cloudformation list-stack-resources"),
-      expect.any(Object)
-    )
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining('--stack-name "stack"'),
-      expect.any(Object)
-    )
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("LogicalResourceId=='MyFunc'"),
+    expect(resolvePhysicalIdMock).toHaveBeenCalledWith({ logicalId: "MyFunc", stackName: "stack" })
+    expect(spawnMock).toHaveBeenCalledWith(
+      "aws",
+      expect.arrayContaining(["--function-name", "stack-MyFunc"]),
       expect.any(Object)
     )
     logSpy.mockRestore()
@@ -374,12 +325,14 @@ describe("runLambda", () => {
     logSpy.mockRestore()
   })
 
-  it("throws if resolvePhysicalId fails in remote mode", async () => {
+  it("propagates error if resolvePhysicalId throws in remote mode", async () => {
     const inputPath = "/ev/foo.json"
     const outputPath = "/out/foo.json"
     const logicalId = "MyFunc"
     const eventName = "MyEvent"
-    execSyncMock.mockReturnValue("None\n")
+    resolvePhysicalIdMock.mockImplementation(() => {
+      throw new Error("no physical ID")
+    })
 
     await expect(
       runLambda({
@@ -390,6 +343,11 @@ describe("runLambda", () => {
         mode: "remote",
         stackName: "stack",
       })
-    ).rejects.toThrow("no physical ID found for logical ID: MyFunc")
+    ).rejects.toThrow("no physical ID")
+
+    expect(spawnMock).not.toHaveBeenCalled()
   })
 })
+
+// ISSUE: runLambda assumes resolvePhysicalId is synchronous. If util.js ever makes it async, runLambda will break because it does not await it.
+// ISSUE: The success/failure check does not parse result.body when it is a JSON string (common for Lambda proxy integrations). Errors inside a JSON string body will be ignored.
