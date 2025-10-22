@@ -296,7 +296,7 @@ describe("main", () => {
       })
     ).resolves.toBeUndefined()
 
-    expect(errSpy).toHaveBeenCalledWith(err1, err2)
+    expect(errSpy).toHaveBeenCalledWith(err1.message, err2.message)
   })
 })
 

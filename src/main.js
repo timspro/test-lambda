@@ -134,6 +134,6 @@ export async function main({ argv, outputDir, eventsDir, templateYamlPath, stack
   }
   const { errors } = await allSettled({ array: promises })
   if (errors.length) {
-    console.error(...errors)
+    console.error(...errors.map((_) => _.message))
   }
 }

@@ -13,7 +13,7 @@ export function resolvePhysicalId({ logicalId, stackName }) {
   const output = execSync(
     `aws cloudformation list-stack-resources \
        --stack-name ${escapedStackName} \
-       --query "StackResourceSummaries[?LogicalResourceId=='${logicalId}' && ResourceType=='AWS::Lambda::Function'].PhysicalResourceId | [0]" \
+       --query "StackResourceSummaries[?LogicalResourceId=='${logicalId}'].PhysicalResourceId | [0]" \
        --output text`,
     { encoding: "utf-8" }
   ).trim()
