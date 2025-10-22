@@ -1,4 +1,3 @@
-/* eslint-disable no-restricted-syntax */
 import { jest } from "@jest/globals"
 import { sleep } from "@tim-code/my-util"
 
@@ -17,97 +16,41 @@ jest.unstable_mockModule("node:fs/promises", () => ({
   readFile: readFileMock,
 }))
 
-const { findFunctionLogicalId, resolveFunctionName, runLambda } = await import(
-  "./run-lambda.js"
-)
+const { resolvePhysicalId, runLambda } = await import("./run-lambda.js")
 
-describe("findFunctionLogicalId", () => {
-  it("returns the function name when CodeUri matches at correct depth", () => {
-    const doc = {
-      Resources: {
-        MyFunc: {
-          Type: "AWS::Lambda::Function",
-          Properties: {
-            CodeUri: "dist/foo",
-          },
-        },
-      },
-    }
-    expect(findFunctionLogicalId(doc, "dist/foo")).toBe("MyFunc")
-  })
-
-  it("returns undefined if CodeUri does not match", () => {
-    const doc = {
-      Resources: {
-        MyFunc: {
-          Type: "AWS::Lambda::Function",
-          Properties: {
-            CodeUri: "dist/bar",
-          },
-        },
-      },
-    }
-    expect(findFunctionLogicalId(doc, "dist/foo")).toBeUndefined()
-  })
-
-  // not supported for now
-  // it("finds deeply nested CodeUri and returns correct parent", () => {
-  //   const doc = {
-  //     Resources: {
-  //       MyFunc: {
-  //         Nested: {
-  //           Properties: {
-  //             CodeUri: "dist/deep",
-  //           },
-  //         },
-  //       },
-  //     },
-  //   }
-  //   expect(findFunctionLogicalId(doc, "dist/deep")).toBe("MyFunc")
-  // })
-
-  it("returns undefined for non-object input", () => {
-    expect(findFunctionLogicalId(null, "foo")).toBeUndefined()
-    expect(findFunctionLogicalId(42, "foo")).toBeUndefined()
-  })
-
-  it("returns first match if multiple CodeUri present", () => {
-    const doc = {
-      Resources: {
-        Func1: { Properties: { CodeUri: "dist/foo" } },
-        Func2: { Properties: { CodeUri: "dist/foo" } },
-      },
-    }
-    // Should return the first encountered, which is Func1
-    expect(findFunctionLogicalId(doc, "dist/foo")).toBe("Func1")
-  })
-})
-
-describe("resolveFunctionName", () => {
+describe("resolvePhysicalId", () => {
   beforeEach(() => {
     execSyncMock.mockReset()
   })
 
-  it("returns function name from execSync output", () => {
-    execSyncMock.mockReturnValue("mypkg-abc-func\n")
-    expect(resolveFunctionName("abc-func", { stackName: "mypkg" })).toBe("mypkg-abc-func")
+  it("returns physical ID from execSync output and uses CloudFormation query with stack name and logical ID", () => {
+    execSyncMock.mockReturnValue("stack-MyFunc\n")
+    expect(resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toBe("stack-MyFunc")
     expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("aws lambda list-functions"),
+      expect.stringContaining("cloudformation list-stack-resources"),
       expect.objectContaining({ encoding: "utf-8" })
+    )
+    expect(execSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('--stack-name "stack"'),
+      expect.any(Object)
+    )
+    expect(execSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining("LogicalResourceId=='MyFunc'"),
+      expect.any(Object)
     )
   })
 
   it("throws if execSync output is empty", () => {
     execSyncMock.mockReturnValue("")
-    expect(() => resolveFunctionName("abc", { stackName: "mypkg" })).toThrow(
-      "No function found with prefix: mypkg-abc"
+    expect(() => resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toThrow(
+      "failed to resolve function: no physical ID found for logical ID: MyFunc"
     )
   })
 
   it('throws if execSync output is "None"', () => {
     execSyncMock.mockReturnValue("None\n")
-    expect(() => resolveFunctionName("def", { stackName: "mypkg" })).toThrow(
-      "No function found with prefix: mypkg-def"
+    expect(() => resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toThrow(
+      "failed to resolve function: no physical ID found for logical ID: MyFunc"
     )
   })
 
@@ -115,76 +58,39 @@ describe("resolveFunctionName", () => {
     execSyncMock.mockImplementation(() => {
       throw new Error("fail")
     })
-    expect(() => resolveFunctionName("x", { stackName: "mypkg" })).toThrow(
-      "Failed to resolve function: fail"
-    )
-  })
-
-  it("uses stackName as prefix if provided", () => {
-    execSyncMock.mockReturnValue("stack-foo-bar\n")
-    expect(resolveFunctionName("bar", { stackName: "stack-foo" })).toBe("stack-foo-bar")
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("starts_with(FunctionName, 'stack-foo-bar')"),
-      expect.any(Object)
-    )
-  })
-
-  it("falls back to no stackName if not provided", () => {
-    execSyncMock.mockReturnValue("baz\n")
-    expect(resolveFunctionName("baz")).toBe("baz")
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("starts_with(FunctionName, 'baz')"),
-      expect.any(Object)
-    )
-  })
-
-  it("does not use stackName if it's an empty string", () => {
-    execSyncMock.mockReturnValue("abc\n")
-    expect(resolveFunctionName("abc", { stackName: "" })).toBe("abc")
-    expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("starts_with(FunctionName, 'abc')"),
-      expect.any(Object)
+    expect(() => resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toThrow(
+      "failed to resolve function: fail"
     )
   })
 })
 
-describe("runTest", () => {
+describe("runLambda", () => {
   let closeMock, onMock, subprocessMock
 
   beforeEach(() => {
     closeMock = jest.fn().mockResolvedValue()
+    openMock.mockReset()
     openMock.mockResolvedValue({ fd: 9, close: closeMock })
     readFileMock.mockReset()
     spawnMock.mockReset()
+    execSyncMock.mockReset()
     onMock = jest.fn()
     subprocessMock = { on: onMock }
     spawnMock.mockReturnValue(subprocessMock)
   })
 
-  it("returns undefined if functionName not found", async () => {
-    const document = {}
-    const lambda = "foo"
-    const spy = jest.spyOn(console, "log").mockImplementation(() => {})
-    const result = await runLambda({
-      document,
-      lambda,
-      mode: "local",
-      eventsDir: "/ev",
-      outputDir: "/out",
-    })
-    expect(result).toBeUndefined()
-    expect(spy).toHaveBeenCalledWith(expect.stringContaining("could not find function name"))
-    spy.mockRestore()
-  })
-
   it("runs local mode and handles success path", async () => {
-    const document = { Resources: { MyFunc: { Properties: { CodeUri: "foo" } } } }
-    const lambda = "foo"
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
+
     let closeHandler
     onMock.mockImplementation((event, cb) => {
       if (event === "close") closeHandler = cb
       return subprocessMock
     })
+
     const response = { statusCode: 200, body: JSON.stringify({}) }
     readFileMock.mockResolvedValue(Buffer.from(JSON.stringify(response)))
     openMock.mockResolvedValue({ fd: 1, close: closeMock })
@@ -192,11 +98,11 @@ describe("runTest", () => {
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
     const promise = runLambda({
-      document,
-      lambda,
+      inputPath,
+      outputPath,
+      logicalId,
+      eventName,
       mode: "local",
-      eventsDir: "/ev",
-      outputDir: "/out",
     })
     await sleep(0)
     await closeHandler(0)
@@ -204,25 +110,29 @@ describe("runTest", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       "sam",
-      expect.arrayContaining(["local", "invoke", "MyFunc"]),
+      expect.arrayContaining(["local", "invoke", logicalId, "--event", inputPath]),
       expect.objectContaining({ stdio: expect.any(Array) })
     )
+    expect(openMock).toHaveBeenCalledWith(outputPath, "w")
     expect(closeMock).toHaveBeenCalled()
-    expect(readFileMock).toHaveBeenCalled()
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("✅"))
+    expect(readFileMock).toHaveBeenCalledWith(outputPath)
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining(`✅ ${eventName}`))
     logSpy.mockRestore()
   })
 
   it("runs remote mode and handles non-200/error status", async () => {
-    const document = { Resources: { MyFunc: { Properties: { CodeUri: "foo" } } } }
-    const lambda = "foo"
-    // ISSUE: Cannot mock resolveFunctionName since it's in the same file. Should be moved to separate module for full isolation.
-    execSyncMock.mockReturnValue("MyFunc\n")
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
+    execSyncMock.mockReturnValue("ActualFunc\n")
+
     let closeHandler
     onMock.mockImplementation((event, cb) => {
       if (event === "close") closeHandler = cb
       return subprocessMock
     })
+
     const response = { statusCode: 500, body: JSON.stringify({ errors: [1] }) }
     readFileMock.mockResolvedValue(Buffer.from(JSON.stringify(response)))
     openMock.mockClear()
@@ -230,11 +140,11 @@ describe("runTest", () => {
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
     const promise = runLambda({
-      document,
-      lambda,
+      inputPath,
+      outputPath,
+      logicalId,
+      eventName,
       mode: "remote",
-      eventsDir: "/ev",
-      outputDir: "/out",
     })
     await sleep(0)
     await closeHandler(0)
@@ -242,18 +152,29 @@ describe("runTest", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       "aws",
-      expect.arrayContaining(["lambda", "invoke"]),
-      expect.objectContaining({ stdio: expect.any(Array) })
+      expect.arrayContaining([
+        "lambda",
+        "invoke",
+        "--function-name",
+        "ActualFunc",
+        "--payload",
+        `file://${inputPath}`,
+      ]),
+      expect.objectContaining({ stdio: ["inherit", "ignore", "inherit"] })
     )
-    expect(readFileMock).toHaveBeenCalled()
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("❌"))
+    expect(openMock).not.toHaveBeenCalled()
+    expect(readFileMock).toHaveBeenCalledWith(outputPath)
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining(`❌ ${eventName}`))
     logSpy.mockRestore()
   })
 
-  it("passes stackName to resolveFunctionName in remote mode", async () => {
-    const document = { Resources: { MyFunc: { Properties: { CodeUri: "foo" } } } }
-    const lambda = "foo"
+  it("passes stackName and logicalId to resolvePhysicalId in remote mode", async () => {
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
     execSyncMock.mockReturnValue("stack-MyFunc\n")
+
     let closeHandler
     onMock.mockImplementation((event, cb) => {
       if (event === "close") closeHandler = cb
@@ -261,33 +182,42 @@ describe("runTest", () => {
     })
     const response = { statusCode: 200, body: JSON.stringify({}) }
     readFileMock.mockResolvedValue(Buffer.from(JSON.stringify(response)))
-    openMock.mockResolvedValue({ fd: 1, close: closeMock })
 
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
     const promise = runLambda({
-      document,
-      lambda,
+      inputPath,
+      outputPath,
+      logicalId,
+      eventName,
       mode: "remote",
-      eventsDir: "/ev",
-      outputDir: "/out",
       stackName: "stack",
     })
     await sleep(0)
     await closeHandler(0)
     await promise
 
-    // The execSyncMock should have been called with a query containing the stackName prefix
     expect(execSyncMock).toHaveBeenCalledWith(
-      expect.stringContaining("starts_with(FunctionName, 'stack-MyFunc')"),
+      expect.stringContaining("cloudformation list-stack-resources"),
+      expect.any(Object)
+    )
+    expect(execSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining('--stack-name "stack"'),
+      expect.any(Object)
+    )
+    expect(execSyncMock).toHaveBeenCalledWith(
+      expect.stringContaining("LogicalResourceId=='MyFunc'"),
       expect.any(Object)
     )
     logSpy.mockRestore()
   })
 
   it("logs and resolves if subprocess exits nonzero", async () => {
-    const document = { Resources: { MyFunc: { Properties: { CodeUri: "foo" } } } }
-    const lambda = "foo"
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
+
     let closeHandler
     onMock.mockImplementation((event, cb) => {
       if (event === "close") closeHandler = cb
@@ -298,23 +228,28 @@ describe("runTest", () => {
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
     const promise = runLambda({
-      document,
-      lambda,
+      inputPath,
+      outputPath,
+      logicalId,
+      eventName,
       mode: "local",
-      eventsDir: "/ev",
-      outputDir: "/out",
     })
     await sleep(0)
     await closeHandler(1)
     await promise
 
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("💥"))
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`💥 ${eventName} exited with code 1`)
+    )
     logSpy.mockRestore()
   })
 
   it("logs and resolves if output file is empty", async () => {
-    const document = { Resources: { MyFunc: { Properties: { CodeUri: "foo" } } } }
-    const lambda = "foo"
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
+
     let closeHandler
     onMock.mockImplementation((event, cb) => {
       if (event === "close") closeHandler = cb
@@ -326,23 +261,28 @@ describe("runTest", () => {
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
     const promise = runLambda({
-      document,
-      lambda,
+      inputPath,
+      outputPath,
+      logicalId,
+      eventName,
       mode: "local",
-      eventsDir: "/ev",
-      outputDir: "/out",
     })
     await sleep(0)
     await closeHandler(0)
     await promise
 
-    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("empty response"))
+    expect(logSpy).toHaveBeenCalledWith(
+      expect.stringContaining(`❌ ${eventName} - empty response`)
+    )
     logSpy.mockRestore()
   })
 
   it("logs result if filtered is true", async () => {
-    const document = { Resources: { MyFunc: { Properties: { CodeUri: "foo" } } } }
-    const lambda = "foo"
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
+
     let closeHandler
     onMock.mockImplementation((event, cb) => {
       if (event === "close") closeHandler = cb
@@ -355,12 +295,12 @@ describe("runTest", () => {
     const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
 
     const promise = runLambda({
-      document,
-      lambda,
+      inputPath,
+      outputPath,
+      logicalId,
+      eventName,
       mode: "local",
       filtered: true,
-      eventsDir: "/ev",
-      outputDir: "/out",
     })
     await sleep(0)
     await closeHandler(0)
@@ -368,5 +308,90 @@ describe("runTest", () => {
 
     expect(logSpy).toHaveBeenCalledWith(response)
     logSpy.mockRestore()
+  })
+
+  it("treats statusCode 200 with body.errors as failure", async () => {
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
+
+    let closeHandler
+    onMock.mockImplementation((event, cb) => {
+      if (event === "close") closeHandler = cb
+      return subprocessMock
+    })
+    const response = { statusCode: 200, body: { errors: ["x"] } }
+    readFileMock.mockResolvedValue(Buffer.from(JSON.stringify(response)))
+    openMock.mockResolvedValue({ fd: 1, close: closeMock })
+
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
+
+    const promise = runLambda({
+      inputPath,
+      outputPath,
+      logicalId,
+      eventName,
+      mode: "local",
+    })
+    await sleep(0)
+    await closeHandler(0)
+    await promise
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining(`❌ ${eventName}`))
+    logSpy.mockRestore()
+  })
+
+  it("treats statusCode 200 with top-level errors as failure", async () => {
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
+
+    let closeHandler
+    onMock.mockImplementation((event, cb) => {
+      if (event === "close") closeHandler = cb
+      return subprocessMock
+    })
+    const response = { statusCode: 200, errors: ["boom"] }
+    readFileMock.mockResolvedValue(Buffer.from(JSON.stringify(response)))
+    openMock.mockResolvedValue({ fd: 1, close: closeMock })
+
+    const logSpy = jest.spyOn(console, "log").mockImplementation(() => {})
+
+    const promise = runLambda({
+      inputPath,
+      outputPath,
+      logicalId,
+      eventName,
+      mode: "local",
+    })
+    await sleep(0)
+    await closeHandler(0)
+    await promise
+
+    expect(logSpy).toHaveBeenCalledWith(expect.stringContaining(`❌ ${eventName}`))
+    logSpy.mockRestore()
+  })
+
+  it("throws if resolvePhysicalId fails in remote mode", async () => {
+    const inputPath = "/ev/foo.json"
+    const outputPath = "/out/foo.json"
+    const logicalId = "MyFunc"
+    const eventName = "MyEvent"
+    execSyncMock.mockReturnValue("None\n")
+
+    await expect(
+      runLambda({
+        inputPath,
+        outputPath,
+        logicalId,
+        eventName,
+        mode: "remote",
+        stackName: "stack",
+      })
+    ).rejects.toThrow(
+      "failed to resolve function: no physical ID found for logical ID: MyFunc"
+    )
   })
 })

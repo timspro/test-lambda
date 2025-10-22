@@ -19,7 +19,7 @@
     ]
   },
   "devDependencies": {
-    "@tim-code/eslint-config": "^1.1.7",
+    "@tim-code/eslint-config": "^1.4.0",
     "@tim-code/my-util": "^0.4.0",
     "jest": "^28.1.2"
   },

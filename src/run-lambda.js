@@ -1,70 +1,50 @@
 import { execSync, spawn } from "node:child_process"
 import { open, readFile } from "node:fs/promises"
 
-export function findFunctionLogicalId(document, codeUriSuffix, parents = []) {
-  if (document && typeof document === "object") {
-    for (const [key, value] of Object.entries(document)) {
-      if (key === "CodeUri") {
-        if (value.endsWith(codeUriSuffix)) {
-          // parents should be FunctionName then Properties
-          return parents[parents.length - 2]
-        }
-      }
-      const result = findFunctionLogicalId(value, codeUriSuffix, [...parents, key])
-      if (result) {
-        return result
-      }
-    }
-  }
-  return undefined
-}
-
-export function resolveFunctionName(prefix, { stackName } = {}) {
-  if (stackName) {
-    prefix = `${stackName}-${prefix}`
-  }
+/**
+ * Gets the physical ID for a resource given the logical ID and stack name.
+ * @param {Object} $1
+ * @param {string} $1.logicalId
+ * @param {string} $1.stackName
+ * @returns {string}
+ */
+export function resolvePhysicalId({ logicalId, stackName }) {
   try {
     const output = execSync(
-      `aws lambda list-functions --query "Functions[?starts_with(FunctionName, '${prefix}')].FunctionName | [0]" --output text`,
+      `aws cloudformation list-stack-resources \
+       --stack-name ${JSON.stringify(stackName)} \
+       --query "StackResourceSummaries[?LogicalResourceId=='${logicalId}' && ResourceType=='AWS::Lambda::Function'].PhysicalResourceId | [0]" \
+       --output text`,
       { encoding: "utf-8" }
     ).trim()
     if (!output || output === "None") {
-      throw new Error(`No function found with prefix: ${prefix}`)
+      throw new Error(`no physical ID found for logical ID: ${logicalId}`)
     }
     return output
-  } catch (err) {
-    throw new Error(`Failed to resolve function: ${err.message}`)
+  } catch (error) {
+    throw new Error(`failed to resolve function: ${error.message}`)
   }
 }
 
 export async function runLambda({
-  eventsDir,
-  outputDir,
-  document,
-  lambda,
+  inputPath,
+  outputPath,
+  logicalId,
+  eventName,
   mode,
   stackName,
   filtered,
 }) {
-  const inputPath = `${eventsDir}/${lambda}.json`
-  const outputPath = `${outputDir}/${lambda}.json`
-
-  const functionLogicalId = findFunctionLogicalId(document, lambda)
-  if (!functionLogicalId) {
-    console.log(`could not find function name for ${lambda}`)
-    return undefined
-  }
-
   let command, args, stdoutFd
   if (mode === "local") {
     command = "sam"
-    args = ["local", "invoke", functionLogicalId, "--event", inputPath]
+    args = ["local", "invoke", logicalId, "--event", inputPath]
     stdoutFd = await open(outputPath, "w")
   } else {
     // does make more sense to use `sam remote invoke` but cannot specify boto config when using that
     // this results in the CLI timing out when invoking a lambda that lasts more than 10 seconds
     command = "aws"
-    const actualFunctionName = resolveFunctionName(functionLogicalId, { stackName })
+    const actualFunctionName = resolvePhysicalId({ logicalId, stackName })
     const payloadPath = `file://${inputPath}`
     args = [
       "lambda",
@@ -94,26 +74,27 @@ export async function runLambda({
       await stdoutFd.close()
 
       if (code !== 0) {
-        console.log(`💥 ${lambda} exited with code ${code}`)
+        console.log(`💥 ${eventName} exited with code ${code}`)
         resolve()
         return
       }
 
       const buffer = await readFile(outputPath)
       if (!buffer || !buffer.length) {
-        console.log(`❌ ${lambda} - empty response`)
+        console.log(`❌ ${eventName} - empty response`)
         resolve()
         return
       }
+      // assumes that lambda returns JSON with "statusCode" key; may need to revisit later
       const result = JSON.parse(buffer.toString())
-      const body = JSON.parse(result.body ?? "{}")
       if (
         result.statusCode === 200 &&
-        (!result.errors || !body.errors || !body.errors.length)
+        !result?.errors?.length &&
+        !result?.body?.errors?.length
       ) {
-        console.log(`✅ ${lambda}`)
+        console.log(`✅ ${eventName}`)
       } else {
-        console.log(`❌ ${lambda}`)
+        console.log(`❌ ${eventName}`)
       }
       if (filtered) {
         console.log(result)
