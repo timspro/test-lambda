@@ -47,7 +47,7 @@ export async function runLambda({
   filtered,
 }) {
   const inputPath = `${eventsDir}/${lambda}.json`
-  const stdoutPath = `${outputDir}/${lambda}.json`
+  const outputPath = `${outputDir}/${lambda}.json`
 
   const functionLogicalId = findFunctionLogicalId(document, lambda)
   if (!functionLogicalId) {
@@ -59,7 +59,7 @@ export async function runLambda({
   if (mode === "local") {
     command = "sam"
     args = ["local", "invoke", functionLogicalId, "--event", inputPath]
-    stdoutFd = await open(stdoutPath, "w")
+    stdoutFd = await open(outputPath, "w")
   } else {
     // does make more sense to use `sam remote invoke` but cannot specify boto config when using that
     // this results in the CLI timing out when invoking a lambda that lasts more than 10 seconds
@@ -77,7 +77,7 @@ export async function runLambda({
       "raw-in-base64-out",
       "--cli-read-timeout",
       "0", // "If the value is set to 0, the socket read will be blocking and not timeout"
-      stdoutPath,
+      outputPath,
     ]
     stdoutFd = { fd: "ignore", close: () => {} }
   }
@@ -99,7 +99,7 @@ export async function runLambda({
         return
       }
 
-      const buffer = await readFile(stdoutPath)
+      const buffer = await readFile(outputPath)
       if (!buffer || !buffer.length) {
         console.log(`❌ ${lambda} - empty response`)
         resolve()
