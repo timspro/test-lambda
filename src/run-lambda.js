@@ -1,16 +1,16 @@
 import { execSync, spawn } from "node:child_process"
 import { open, readFile } from "node:fs/promises"
 
-export function findFunctionName(object, codeUri, parents = []) {
-  if (object && typeof object === "object") {
-    for (const [key, value] of Object.entries(object)) {
+export function findFunctionLogicalId(document, codeUriSuffix, parents = []) {
+  if (document && typeof document === "object") {
+    for (const [key, value] of Object.entries(document)) {
       if (key === "CodeUri") {
-        if (value.endsWith(codeUri)) {
+        if (value.endsWith(codeUriSuffix)) {
           // parents should be FunctionName then Properties
           return parents[parents.length - 2]
         }
       }
-      const result = findFunctionName(value, codeUri, [...parents, key])
+      const result = findFunctionLogicalId(value, codeUriSuffix, [...parents, key])
       if (result) {
         return result
       }
@@ -49,8 +49,8 @@ export async function runLambda({
   const inputPath = `${eventsDir}/${lambda}.json`
   const stdoutPath = `${outputDir}/${lambda}.json`
 
-  const functionName = findFunctionName(document, lambda)
-  if (!functionName) {
+  const functionLogicalId = findFunctionLogicalId(document, lambda)
+  if (!functionLogicalId) {
     console.log(`could not find function name for ${lambda}`)
     return undefined
   }
@@ -58,13 +58,13 @@ export async function runLambda({
   let command, args, stdoutFd
   if (mode === "local") {
     command = "sam"
-    args = ["local", "invoke", functionName, "--event", inputPath]
+    args = ["local", "invoke", functionLogicalId, "--event", inputPath]
     stdoutFd = await open(stdoutPath, "w")
   } else {
     // does make more sense to use `sam remote invoke` but cannot specify boto config when using that
     // this results in the CLI timing out when invoking a lambda that lasts more than 10 seconds
     command = "aws"
-    const actualFunctionName = resolveFunctionName(functionName, { stackName })
+    const actualFunctionName = resolveFunctionName(functionLogicalId, { stackName })
     const payloadPath = `file://${inputPath}`
     args = [
       "lambda",

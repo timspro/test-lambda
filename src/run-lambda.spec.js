@@ -17,9 +17,11 @@ jest.unstable_mockModule("node:fs/promises", () => ({
   readFile: readFileMock,
 }))
 
-const { findFunctionName, resolveFunctionName, runLambda } = await import("./run-lambda.js")
+const { findFunctionLogicalId, resolveFunctionName, runLambda } = await import(
+  "./run-lambda.js"
+)
 
-describe("findFunctionName", () => {
+describe("findFunctionLogicalId", () => {
   it("returns the function name when CodeUri matches at correct depth", () => {
     const doc = {
       Resources: {
@@ -31,7 +33,7 @@ describe("findFunctionName", () => {
         },
       },
     }
-    expect(findFunctionName(doc, "dist/foo")).toBe("MyFunc")
+    expect(findFunctionLogicalId(doc, "dist/foo")).toBe("MyFunc")
   })
 
   it("returns undefined if CodeUri does not match", () => {
@@ -45,7 +47,7 @@ describe("findFunctionName", () => {
         },
       },
     }
-    expect(findFunctionName(doc, "dist/foo")).toBeUndefined()
+    expect(findFunctionLogicalId(doc, "dist/foo")).toBeUndefined()
   })
 
   // not supported for now
@@ -61,12 +63,12 @@ describe("findFunctionName", () => {
   //       },
   //     },
   //   }
-  //   expect(findFunctionName(doc, "dist/deep")).toBe("MyFunc")
+  //   expect(findFunctionLogicalId(doc, "dist/deep")).toBe("MyFunc")
   // })
 
   it("returns undefined for non-object input", () => {
-    expect(findFunctionName(null, "foo")).toBeUndefined()
-    expect(findFunctionName(42, "foo")).toBeUndefined()
+    expect(findFunctionLogicalId(null, "foo")).toBeUndefined()
+    expect(findFunctionLogicalId(42, "foo")).toBeUndefined()
   })
 
   it("returns first match if multiple CodeUri present", () => {
@@ -77,7 +79,7 @@ describe("findFunctionName", () => {
       },
     }
     // Should return the first encountered, which is Func1
-    expect(findFunctionName(doc, "dist/foo")).toBe("Func1")
+    expect(findFunctionLogicalId(doc, "dist/foo")).toBe("Func1")
   })
 })
 
