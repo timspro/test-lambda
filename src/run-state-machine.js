@@ -110,7 +110,6 @@ export async function runStateMachine({
     inputPath,
   })
   // poll the execution status every 5 seconds until it's finished
-  // eslint-disable-next-line no-constant-condition
   while (true) {
     const status = describeStatusCLI({ executionArn })
     if (status !== "RUNNING") {
