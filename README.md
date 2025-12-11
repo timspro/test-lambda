@@ -24,4 +24,6 @@ TEMPLATE_PATH specifies the path to find the template.yaml file.
 
 STACK_NAME specifies a prefix to the function name, which is used when looking up the deployed lambda using the function name written in template.yaml.
 
+STAGE specifies a suffix to the stack name. This supports the common case of having multiple stacks representing different environments.
+
 USE_PACKAGE_NAME: if true and STACK_NAME is not defined, uses the npm_package_name environment variable defined by npm instead of STACK_NAME. This works when your package's name is your stack's name. Default is true.
