@@ -34,14 +34,14 @@ describe("resolvePhysicalId", () => {
   it("throws if execSync output is empty", () => {
     execSyncMock.mockReturnValue("")
     expect(() => resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toThrow(
-      "no physical ID found for logical ID: MyFunc"
+      /no physical ID found for logical ID MyFunc/
     )
   })
 
   it('throws if execSync output is "None"', () => {
     execSyncMock.mockReturnValue("None\n")
     expect(() => resolvePhysicalId({ logicalId: "MyFunc", stackName: "stack" })).toThrow(
-      "no physical ID found for logical ID: MyFunc"
+      /no physical ID found for logical ID MyFunc/
     )
   })
 

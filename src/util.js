@@ -17,7 +17,9 @@ export function resolvePhysicalId({ logicalId, stackName }) {
     { encoding: "utf-8" }
   ).trim()
   if (!output || output === "None") {
-    throw new Error(`no physical ID found for logical ID: ${logicalId}`)
+    throw new Error(
+      `no physical ID found for logical ID ${logicalId} and stack name ${escapedStackName}`
+    )
   }
   return output
 }
