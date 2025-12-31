@@ -89,6 +89,7 @@ export async function main({ argv, outputDir, eventsDir, templateYamlPath, stack
       if (getDefinition(document, eventName)) {
         logicalId = eventName
       } else {
+        // allow "CodeUri" lookup as well
         logicalId = findFunctionLogicalId(document, eventName)
       }
       if (!logicalId) {
